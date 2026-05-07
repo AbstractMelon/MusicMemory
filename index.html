@@ -166,13 +166,18 @@
     const timeDisplay = document.getElementById('time-display');
 
     playBtn.addEventListener('click', () => {
-        if (player.paused) {
+        if (player.paused || player.ended) {
             player.play();
             playBtn.innerText = '⏸';
         } else {
             player.pause();
             playBtn.innerText = '▶';
         }
+    });
+
+    // Reset button icon when audio ends naturally
+    player.addEventListener('ended', () => {
+        playBtn.innerText = '▶';
     });
 
     player.addEventListener('timeupdate', () => {
