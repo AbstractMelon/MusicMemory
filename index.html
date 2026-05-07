@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Music Memory - Final Exam Review</title>
+    <title>Music Memory</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -27,6 +27,45 @@
         }
         h1 { color: #333; }
         .audio-controls { margin: 20px 0; }
+        
+        /* Custom Media Player */
+        .custom-player {
+            background: #eee;
+            padding: 15px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .play-btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .progress-container {
+            flex-grow: 1;
+            height: 8px;
+            background: #ccc;
+            border-radius: 4px;
+            position: relative;
+            cursor: pointer;
+        }
+        .progress-bar {
+            height: 100%;
+            background: #007bff;
+            width: 0%;
+            border-radius: 4px;
+        }
+        .time { font-size: 0.8rem; min-width: 85px; text-align: left; }
+
         .options {
             display: grid;
             grid-template-columns: 1fr;
@@ -66,13 +105,18 @@
 <body>
 
 <div class="container" id="quiz-container">
-    <h1>Final Exam Listening Review</h1>
+    <h1>Music Memory</h1>
     <div id="progress">Question 1 of 16</div>
     
     <div class="audio-controls">
-        <audio id="audio-player" controls>
-            Your browser does not support the audio element.
-        </audio>
+        <audio id="audio-player"></audio>
+        <div class="custom-player">
+            <button id="play-pause" class="play-btn">▶</button>
+            <div class="progress-container" id="progress-container">
+                <div class="progress-bar" id="progress-bar"></div>
+            </div>
+            <div class="time" id="time-display">0:00 / 0:00</div>
+        </div>
     </div>
 
     <div id="feedback"></div>
@@ -114,6 +158,44 @@
     let currentIndex = 0;
     let score = 0;
 
+    // Custom Player Logic
+    const player = document.getElementById('audio-player');
+    const playBtn = document.getElementById('play-pause');
+    const progressBar = document.getElementById('progress-bar');
+    const progressContainer = document.getElementById('progress-container');
+    const timeDisplay = document.getElementById('time-display');
+
+    playBtn.addEventListener('click', () => {
+        if (player.paused) {
+            player.play();
+            playBtn.innerText = '⏸';
+        } else {
+            player.pause();
+            playBtn.innerText = '▶';
+        }
+    });
+
+    player.addEventListener('timeupdate', () => {
+        const percent = (player.currentTime / player.duration) * 100;
+        progressBar.style.width = `${percent}%`;
+        
+        const curMin = Math.floor(player.currentTime / 60);
+        const curSec = Math.floor(player.currentTime % 60).toString().padStart(2, '0');
+        const durMin = Math.floor(player.duration || 0) / 60;
+        const durSec = Math.floor(player.duration || 0) % 60;
+        
+        if (!isNaN(player.duration)) {
+            timeDisplay.innerText = `${curMin}:${curSec} / ${Math.floor(durMin)}:${Math.floor(durSec).toString().padStart(2, '0')}`;
+        }
+    });
+
+    progressContainer.addEventListener('click', (e) => {
+        const width = progressContainer.clientWidth;
+        const clickX = e.offsetX;
+        const duration = player.duration;
+        player.currentTime = (clickX / width) * duration;
+    });
+
     function shuffle(array) {
         for (let i = array.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
@@ -130,9 +212,10 @@
     function showQuestion() {
         const question = currentQuestions[currentIndex];
         document.getElementById('progress').innerText = `Question ${currentIndex + 1} of ${currentQuestions.length}`;
-        const player = document.getElementById('audio-player');
         player.src = `audio/${question.file}`;
         player.load();
+        playBtn.innerText = '▶';
+        progressBar.style.width = '0%';
         
         const feedback = document.getElementById('feedback');
         feedback.innerText = '';
