@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Music Memory</title>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -135,8 +136,14 @@
 <div class="container" id="score-screen">
     <h1>Quiz Completed!</h1>
     <p id="final-score" style="font-weight: bold; font-size: 1.2rem;"></p>
+    <div style="width: 100%; max-width: 500px; margin: 20px auto;">
+        <canvas id="scoreChart"></canvas>
+    </div>
     <div id="overview-container" style="text-align: left; margin-top: 20px; margin-bottom: 20px;"></div>
-    <button onclick="location.reload()" style="background: #28a745; color: white; border: none; padding: 12px 24px;">Restart Quiz</button>
+    <div style="display: flex; gap: 10px; justify-content: center;">
+        <button onclick="location.reload()" style="background: #28a745; color: white; border: none; padding: 12px 24px;">Restart Quiz</button>
+        <button id="review-missed-btn" class="hidden" onclick="reviewMissed()" style="background: #ffc107; color: white; border: none; padding: 12px 24px;">Review Missed</button>
+    </div>
 </div>
 
 <script>
@@ -164,6 +171,8 @@
     let currentIndex = 0;
     let score = 0;
     let historyList = [];
+    let isReviewMode = false;
+    let scoreChartInstance = null;
 
     // Custom Player Logic
     const player = document.getElementById('audio-player');
@@ -309,11 +318,28 @@
     }
 
     function showResults() {
+        // Stop audio when test finishes
+        player.pause();
+        player.currentTime = 0;
+        playBtn.innerHTML = '<i data-lucide="play"></i>';
+
         document.getElementById('quiz-container').style.display = 'none';
         const scoreScreen = document.getElementById('score-screen');
         scoreScreen.style.display = 'block';
-        document.getElementById('final-score').innerText = `You scored ${score} out of ${currentQuestions.length} (${Math.round(score/currentQuestions.length*100)}%)`;
         
+        const percentage = Math.round(score/currentQuestions.length*100);
+        document.getElementById('final-score').innerText = `You scored ${score} out of ${currentQuestions.length} (${percentage}%)`;
+        
+        if (!isReviewMode) {
+            const savedScores = JSON.parse(localStorage.getItem('musicMemoryScores') || '[]');
+            savedScores.push({ date: new Date().toLocaleDateString(), score: percentage });
+            localStorage.setItem('musicMemoryScores', JSON.stringify(savedScores));
+            renderChart(savedScores);
+        } else {
+            const savedScores = JSON.parse(localStorage.getItem('musicMemoryScores') || '[]');
+            renderChart(savedScores);
+        }
+
         const overviewContainer = document.getElementById('overview-container');
         overviewContainer.innerHTML = '<h3>Overview of Answers:</h3><ul style="list-style: none; padding: 0;">' + 
             historyList.map((item, index) => {
@@ -328,7 +354,61 @@
                 html += `</li>`;
                 return html;
             }).join('') + '</ul>';
+
+        // Show/hide review missed button
+        if (historyList.some(item => !item.correct)) {
+            document.getElementById('review-missed-btn').classList.remove('hidden');
+        } else {
+            document.getElementById('review-missed-btn').classList.add('hidden');
+        }
+
         lucide.createIcons();
+    }
+
+    function reviewMissed() {
+        const missedTracks = historyList.filter(item => !item.correct).map(item => item.track);
+        currentQuestions = shuffle([...missedTracks]);
+        currentIndex = 0;
+        score = 0;
+        historyList = [];
+        isReviewMode = true;
+        
+        document.getElementById('score-screen').style.display = 'none';
+        document.getElementById('quiz-container').style.display = 'block';
+        showQuestion();
+    }
+
+    function renderChart(savedScores) {
+        const ctx = document.getElementById('scoreChart').getContext('2d');
+        if (scoreChartInstance) {
+            scoreChartInstance.destroy();
+        }
+        
+        const labels = savedScores.map((_, i) => `Attempt ${i + 1}`);
+        const data = savedScores.map(s => s.score);
+
+        scoreChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Score (%)',
+                    data: data,
+                    borderColor: '#007bff',
+                    backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                    tension: 0.3,
+                    fill: true
+                }]
+            },
+            options: {
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 100
+                    }
+                }
+            }
+        });
     }
 
     initQuiz();
