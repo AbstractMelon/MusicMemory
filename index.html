@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Music Memory</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -15,6 +17,7 @@
             min-height: 100vh;
             margin: 0;
             padding: 20px;
+            overflow: hidden;
         }
         .container {
             background: white;
@@ -24,6 +27,8 @@
             max-width: 600px;
             width: 100%;
             text-align: center;
+            max-height: 90vh;
+            overflow-y: auto;
         }
         h1 { color: #333; }
         .audio-controls { margin: 20px 0; }
@@ -106,12 +111,12 @@
 
 <div class="container" id="quiz-container">
     <h1>Music Memory</h1>
-    <div id="progress">Question 1 of 16</div>
+    <div id="progress">Question 1 of 17</div>
     
     <div class="audio-controls">
         <audio id="audio-player"></audio>
         <div class="custom-player">
-            <button id="play-pause" class="play-btn">▶</button>
+            <button id="play-pause" class="play-btn"><i data-lucide="play"></i></button>
             <div class="progress-container" id="progress-container">
                 <div class="progress-bar" id="progress-bar"></div>
             </div>
@@ -130,8 +135,15 @@
 
 <div class="container" id="score-screen">
     <h1>Quiz Completed!</h1>
-    <p id="final-score"></p>
-    <button onclick="location.reload()" style="background: #28a745; color: white; border: none;">Restart Quiz</button>
+    <p id="final-score" style="font-weight: bold; font-size: 1.2rem;"></p>
+    <div style="width: 100%; max-width: 500px; margin: 20px auto;">
+        <canvas id="scoreChart"></canvas>
+    </div>
+    <div id="overview-container" style="text-align: left; margin-top: 20px; margin-bottom: 20px;"></div>
+    <div style="display: flex; gap: 10px; justify-content: center;">
+        <button onclick="location.reload()" style="background: #28a745; color: white; border: none; padding: 12px 24px;">Restart Quiz</button>
+        <button id="review-missed-btn" class="hidden" onclick="reviewMissed()" style="background: #ffc107; color: white; border: none; padding: 12px 24px;">Review Missed</button>
+    </div>
 </div>
 
 <script>
@@ -152,12 +164,16 @@
         { name: "Der Mondfleck (from Pierrot Lunaire)", composer: "Arnold Schoenberg", file: "schoenberg_mondfleck.mp3" },
         { name: "Erlkonig", composer: "Franz Schubert", file: "schubert_erlkonig.mp3" },
         { name: "Rite of Spring", composer: "Igor Stravinsky", file: "stravinsky_rite.mp3" },
-        { name: "Rhapsody in Blue", composer: "George Gershwin", file: "gershwin_rhapsody.mp3" },
+        { name: "Ride of the Valkyries (from Die Valkure)", composer: "Richard Wagner", file: "Richard Wagner - Ride of the Valkyries (from Die Valkure).m4a" },
+        { name: "Rhapsody in Blue", composer: "George Gershwin", file: "gershwin_rhapsody.mp3" }
     ];
 
     let currentQuestions = [];
     let currentIndex = 0;
     let score = 0;
+    let historyList = [];
+    let isReviewMode = false;
+    let scoreChartInstance = null;
 
     // Custom Player Logic
     const player = document.getElementById('audio-player');
@@ -169,16 +185,18 @@
     playBtn.addEventListener('click', () => {
         if (player.paused || player.ended) {
             player.play();
-            playBtn.innerText = '⏸';
+            playBtn.innerHTML = '<i data-lucide="pause"></i>';
         } else {
             player.pause();
-            playBtn.innerText = '▶';
+            playBtn.innerHTML = '<i data-lucide="play"></i>';
         }
+        lucide.createIcons();
     });
 
     // Reset button icon when audio ends naturally
     player.addEventListener('ended', () => {
-        playBtn.innerText = '▶';
+        playBtn.innerHTML = '<i data-lucide="play"></i>';
+        lucide.createIcons();
     });
 
     player.addEventListener('timeupdate', () => {
@@ -220,7 +238,19 @@
         document.getElementById('progress').innerText = `Question ${currentIndex + 1} of ${currentQuestions.length}`;
         player.src = `audio/${question.file}`;
         player.load();
-        playBtn.innerText = '▶';
+        
+        let playPromise = player.play();
+        if (playPromise !== undefined) {
+            playPromise.then(_ => {
+                playBtn.innerHTML = '<i data-lucide="pause"></i>';
+                lucide.createIcons();
+            }).catch(error => {
+                playBtn.innerHTML = '<i data-lucide="play"></i>';
+                lucide.createIcons();
+                console.log('Autoplay blocked:', error);
+            });
+        }
+        
         progressBar.style.width = '0%';
         
         const feedback = document.getElementById('feedback');
@@ -261,10 +291,12 @@
             feedback.innerText = "Correct!";
             feedback.style.color = "#28a745";
             score++;
+            historyList.push({ track: correctTrack, correct: true, selected: selectedOpt });
         } else {
             selectedBtn.classList.add('incorrect');
             feedback.innerText = `Incorrect. The answer was: ${correctLabel}`;
             feedback.style.color = "#dc3545";
+            historyList.push({ track: correctTrack, correct: false, selected: selectedOpt });
             
             // Highlight the correct one
             buttons.forEach(btn => {
@@ -287,10 +319,97 @@
     }
 
     function showResults() {
+        // Stop audio when test finishes
+        player.pause();
+        player.currentTime = 0;
+        playBtn.innerHTML = '<i data-lucide="play"></i>';
+
         document.getElementById('quiz-container').style.display = 'none';
         const scoreScreen = document.getElementById('score-screen');
         scoreScreen.style.display = 'block';
-        document.getElementById('final-score').innerText = `You scored ${score} out of ${currentQuestions.length} (${Math.round(score/currentQuestions.length*100)}%)`;
+        
+        const percentage = Math.round(score/currentQuestions.length*100);
+        document.getElementById('final-score').innerText = `You scored ${score} out of ${currentQuestions.length} (${percentage}%)`;
+        
+        if (!isReviewMode) {
+            const savedScores = JSON.parse(localStorage.getItem('musicMemoryScores') || '[]');
+            savedScores.push({ date: new Date().toLocaleDateString(), score: percentage });
+            localStorage.setItem('musicMemoryScores', JSON.stringify(savedScores));
+            renderChart(savedScores);
+        } else {
+            const savedScores = JSON.parse(localStorage.getItem('musicMemoryScores') || '[]');
+            renderChart(savedScores);
+        }
+
+        const overviewContainer = document.getElementById('overview-container');
+        overviewContainer.innerHTML = '<h3>Overview of Answers:</h3><ul style="list-style: none; padding: 0;">' + 
+            historyList.map((item, index) => {
+                const color = item.correct ? 'green' : 'red';
+                const icon = item.correct ? 'check-circle' : 'x-circle';
+                let html = `<li style="margin-bottom: 15px; padding: 10px; border-left: 4px solid ${color}; background: #f9f9f9; border-radius: 4px;">`;
+                html += `<div style="display: flex; align-items: center; gap: 8px; color: ${color}; font-weight: bold;"><i data-lucide="${icon}" style="width: 18px; height: 18px;"></i> Question ${index + 1}</div>`;
+                html += `<div style="margin-top: 5px;"><strong>Song:</strong> ${item.track.composer} - ${item.track.name}</div>`;
+                if (!item.correct) {
+                    html += `<div style="margin-top: 5px; color: #555;"><em>You guessed: ${item.selected.composer} - ${item.selected.name}</em></div>`;
+                }
+                html += `</li>`;
+                return html;
+            }).join('') + '</ul>';
+
+        // Show/hide review missed button
+        if (historyList.some(item => !item.correct)) {
+            document.getElementById('review-missed-btn').classList.remove('hidden');
+        } else {
+            document.getElementById('review-missed-btn').classList.add('hidden');
+        }
+
+        lucide.createIcons();
+    }
+
+    function reviewMissed() {
+        const missedTracks = historyList.filter(item => !item.correct).map(item => item.track);
+        currentQuestions = shuffle([...missedTracks]);
+        currentIndex = 0;
+        score = 0;
+        historyList = [];
+        isReviewMode = true;
+        
+        document.getElementById('score-screen').style.display = 'none';
+        document.getElementById('quiz-container').style.display = 'block';
+        showQuestion();
+    }
+
+    function renderChart(savedScores) {
+        const ctx = document.getElementById('scoreChart').getContext('2d');
+        if (scoreChartInstance) {
+            scoreChartInstance.destroy();
+        }
+        
+        const labels = savedScores.map((_, i) => `Attempt ${i + 1}`);
+        const data = savedScores.map(s => s.score);
+
+        scoreChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Score (%)',
+                    data: data,
+                    borderColor: '#007bff',
+                    backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                    tension: 0.3,
+                    fill: true
+                }]
+            },
+            options: {
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 100
+                    }
+                }
+            }
+        });
     }
 
     initQuiz();
